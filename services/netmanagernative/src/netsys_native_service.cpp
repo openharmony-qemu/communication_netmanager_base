@@ -31,6 +31,9 @@
 #include "system_vpn_wrapper.h"
 #endif // SUPPORT_SYSVPN
 #include "bpf_ring_buffer.h"
+#ifdef OHOS_QEMU_MODEM_TUN
+#include "qemu_modem_tun.h"
+#endif
 
 using namespace OHOS::NetManagerStandard::CommonUtils;
 namespace OHOS {
@@ -71,6 +74,11 @@ void NetsysNativeService::OnStart()
 #ifdef FEATURE_NET_FIREWALL_ENABLE
     bpfNetFirewall_->StartListener();
 #endif
+#ifdef OHOS_QEMU_MODEM_TUN
+    if (!StartQemuModemTun()) {
+        NETNATIVE_LOGE("QEMU virtual modem TUN endpoint failed");
+    }
+#endif
     NETNATIVE_LOGI("start listener end on start end");
 }
 
@@ -78,6 +86,9 @@ void NetsysNativeService::OnStop()
 {
     std::lock_guard<std::mutex> guard(instanceLock_);
     state_ = ServiceRunningState::STATE_STOPPED;
+#ifdef OHOS_QEMU_MODEM_TUN
+    StopQemuModemTun();
+#endif
     NETNATIVE_LOGI("stop listener");
     manager_->StopListener();
 #ifdef FEATURE_NET_FIREWALL_ENABLE

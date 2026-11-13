@@ -18,6 +18,7 @@
 
 #include <securec.h>
 #include <stdint.h>
+#include <mutex>
 #include <string>
 #include <unordered_map>
 #include <utility>

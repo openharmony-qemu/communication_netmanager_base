@@ -46,6 +46,14 @@ int32_t NetDataShareHelperUtilsIface::Query(const std::string &strUri, const std
     return ret;
 }
 
+int32_t NetDataShareHelperUtilsIface::QueryOptional(const std::string &strUri, const std::string &key,
+    std::string &value, bool &found)
+{
+    NetDataShareHelperUtils helper;
+    Uri uri(strUri);
+    return helper.QueryOptional(uri, key, value, found);
+}
+
 int32_t NetDataShareHelperUtilsIface::Insert(const std::string &strUri, const std::string &key,
                                              const std::string &value)
 {

@@ -1528,6 +1528,30 @@ int32_t RouteManager::SendSharingForbidIpRuleToKernel(
     return SendNetlinkMsgToKernel(nlmsg.GetNetLinkMessage());
 }
 
+int32_t RouteManager::ReplaceQemuRouteMetric(const std::string &interfaceName,
+    const std::string &destination, const std::string &gateway, uint32_t from, uint32_t to)
+{
+    // Only the authenticated QEMU TUN broker calls this. It supplies the
+    // already-owned interface and validates both endpoints before this cut.
+    NetworkRouteInfo network;
+    network.destination = destination; network.ifName = interfaceName;
+    network.nextHop = gateway; network.isExcludedRoute = false;
+    RouteInfo route;
+    if (SetRouteInfo(VPN_NETWORK, network, route) != 0 || route.routeTable == RT_TABLE_UNSPEC) return -EINVAL;
+    route.metric = from;
+    int32_t result = UpdateRouteRule(RTM_DELROUTE, 0, route);
+    if (result != 0) return result;
+    route.metric = to;
+    result = UpdateRouteRule(RTM_NEWROUTE, NLM_F_CREATE | NLM_F_EXCL, route);
+    if (result != 0) {
+        route.metric = from;
+        if (UpdateRouteRule(RTM_NEWROUTE, NLM_F_CREATE | NLM_F_EXCL, route) != 0) return -EIO;
+    }
+    NETNATIVE_LOGI("QemuRouteMetric interface=%{public}s table=%{public}u from=%{public}u to=%{public}u result=%{public}d",
+        interfaceName.c_str(), route.routeTable, from, to, result);
+    return result;
+}
+
 int32_t RouteManager::UpdateRouteRule(uint16_t action, uint16_t flags, RouteInfo routeInfo)
 {
     NETNATIVE_LOG_D("UpdateRouteRule");
@@ -1595,6 +1619,9 @@ int32_t RouteManager::SendRouteToKernel(uint16_t action, uint16_t routeFlag, rtm
     nlmsg.AddRoute(action, msg);
     if (int32_t ret = nlmsg.AddAttr32(RTA_TABLE, routeInfo.routeTable)) {
         return ret;
+    }
+    if (routeInfo.metric) {
+        if (int32_t ret = nlmsg.AddAttr32(RTA_PRIORITY, routeInfo.metric)) return ret;
     }
     if (int32_t ret = nlmsg.AddAttr(RTA_DST, dst.data, dst.bitlen / BYTE_ALIGNMENT)) {
         return ret;

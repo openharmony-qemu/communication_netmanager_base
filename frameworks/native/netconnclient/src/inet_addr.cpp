@@ -82,7 +82,7 @@ bool INetAddr::Marshalling(Parcel &parcel) const
     if (!parcel.WriteString(hostName_)) {
         return false;
     }
-    if (!parcel.WriteUint8(port_)) {
+    if (!parcel.WriteUint16(port_)) {
         return false;
     }
     return true;
@@ -113,9 +113,11 @@ sptr<INetAddr> INetAddr::Unmarshalling(Parcel &parcel)
     if (!parcel.ReadString(ptr->hostName_)) {
         return nullptr;
     }
-    if (!parcel.ReadUint8(ptr->port_)) {
+    uint32_t port = 0;
+    if (!parcel.ReadUint32(port) || port > UINT16_MAX) {
         return nullptr;
     }
+    ptr->port_ = static_cast<uint16_t>(port);
     return ptr;
 }
 
@@ -149,7 +151,7 @@ bool INetAddr::Marshalling(Parcel &parcel, const sptr<INetAddr> &object)
         return false;
     }
 
-    if (!parcel.WriteUint8(object->port_)) {
+    if (!parcel.WriteUint16(object->port_)) {
         return false;
     }
     return true;

@@ -17,7 +17,7 @@
 
 #include <stdint.h>
 #include <sys/socket.h>
-#include <bpf/bpf_endian.h>
+#include <bpf_endian.h>
 #include <linux/bpf.h>
 #include <linux/icmp.h>
 #include <linux/icmpv6.h>
@@ -32,6 +32,114 @@
 #include <linux/tc_act/tc_bpf.h>
 #include <linux/tcp.h>
 #include <linux/udp.h>
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
+#ifndef udphdr
+#define udphdr __kernel_udphdr
+#endif
 #include <stdbool.h>
 
 #define TCP_FLAGS_OFFSET 12

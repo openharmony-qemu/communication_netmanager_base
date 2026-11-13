@@ -69,24 +69,27 @@ static __always_inline void log_intercept(struct match_tuple *tuple)
     if (!tuple) {
         return;
     }
-
-    struct intercept_event ev = {
-        .dir = tuple->dir,
-        .family = tuple->family,
-        .protocol = tuple->protocol,
-        .sport = tuple->sport,
-        .dport = tuple->dport,
-        .appuid = tuple->appuid,
-    };
-
-    if (AF_INET == tuple->family) {
-        ev.ipv4.saddr = tuple->ipv4.saddr;
-        ev.ipv4.daddr = tuple->ipv4.daddr;
-    } else if (AF_INET6 == tuple->family) {
-        ev.ipv6.saddr = tuple->ipv6.saddr;
-        ev.ipv6.daddr = tuple->ipv6.daddr;
+    struct event *e = bpf_ringbuf_reserve(&EVENT_MAP, sizeof(struct event), 0);
+    if (!e) {
+        return;
     }
-    output_to_user(EVENT_INTERCEPT, &ev, sizeof(struct intercept_event));
+    memset(e, 0, sizeof(struct event));
+    e->type = EVENT_INTERCEPT;
+    e->len = sizeof(struct intercept_event);
+    e->intercept.dir = tuple->dir;
+    e->intercept.family = tuple->family;
+    e->intercept.protocol = tuple->protocol;
+    e->intercept.sport = tuple->sport;
+    e->intercept.dport = tuple->dport;
+    e->intercept.appuid = tuple->appuid;
+    if (AF_INET == tuple->family) {
+        e->intercept.ipv4.saddr = tuple->ipv4.saddr;
+        e->intercept.ipv4.daddr = tuple->ipv4.daddr;
+    } else if (AF_INET6 == tuple->family) {
+        e->intercept.ipv6.saddr = tuple->ipv6.saddr;
+        e->intercept.ipv6.daddr = tuple->ipv6.daddr;
+    }
+    bpf_ringbuf_submit(e, 0);
 }
 
 static __always_inline void log_intercept_event(struct match_tuple *tuple, struct __sk_buff *skb)

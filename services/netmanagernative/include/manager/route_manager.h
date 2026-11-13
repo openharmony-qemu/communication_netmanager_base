@@ -46,6 +46,7 @@ typedef struct RouteInfo {
     std::string routeDestinationName;
     std::string routeNextHop;
     bool isExcludedRoute = false;
+    uint32_t metric = 0; // Internal netlink attribute, never a public Parcel.
 } RouteInfo;
 
 typedef struct InetAddr {
@@ -57,6 +58,8 @@ typedef struct InetAddr {
 
 class RouteManager {
 public:
+    static int32_t ReplaceQemuRouteMetric(const std::string &interfaceName,
+        const std::string &destination, const std::string &gateway, uint32_t from, uint32_t to);
     RouteManager();
     ~RouteManager() = default;
 

@@ -16,8 +16,10 @@
 #include "napi_utils.h"
 
 #include <atomic>
+#include <cmath>
 #include <cstring>
 #include <initializer_list>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -310,6 +312,36 @@ uint32_t GetUint32Property(napi_env env, napi_value object, const std::string &p
     }
     napi_value value = GetNamedProperty(env, object, propertyName);
     return GetUint32FromValue(env, value);
+}
+
+bool GetOptionalUint16Property(napi_env env, napi_value object, const std::string &propertyName, uint16_t &value)
+{
+    bool present = false;
+    if (napi_has_named_property(env, object, propertyName.c_str(), &present) != napi_ok) {
+        return false;
+    }
+    if (!present) {
+        value = 0;
+        return true;
+    }
+    napi_value property = nullptr;
+    napi_valuetype type = napi_undefined;
+    if (napi_get_named_property(env, object, propertyName.c_str(), &property) != napi_ok ||
+        napi_typeof(env, property, &type) != napi_ok) {
+        return false;
+    }
+    if (type == napi_undefined) {
+        value = 0;
+        return true;
+    }
+    double requested = 0;
+    if (type != napi_number || napi_get_value_double(env, property, &requested) != napi_ok ||
+        !std::isfinite(requested) || std::trunc(requested) != requested ||
+        requested < 0 || requested > std::numeric_limits<uint16_t>::max()) {
+        return false;
+    }
+    value = static_cast<uint16_t>(requested);
+    return true;
 }
 
 void SetUint32Property(napi_env env, napi_value object, const std::string &name, uint32_t value)

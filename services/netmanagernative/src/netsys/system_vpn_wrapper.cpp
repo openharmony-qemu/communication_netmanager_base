@@ -16,6 +16,11 @@
 #include "system_vpn_wrapper.h"
 
 #include <unistd.h>
+#ifdef OHOS_QEMU_OPENVPN
+#include "service_control.h"
+#include "../../../../../netmanager_ext/qemu_openvpn/broker_protocol.h"
+#include <mutex>
+#endif
 #include "netnative_log_wrapper.h"
 #include "netmanager_base_common_utils.h"
 #include "net_manager_constants.h"
@@ -110,6 +115,69 @@ void SystemVpnWrapper::ExecuteUpdate(SysVpnStageCode stage, const std::string &m
 
 int32_t SystemVpnWrapper::Update(NetsysNative::SysVpnStageCode stage, const std::string &message)
 {
+#ifdef OHOS_QEMU_OPENVPN
+    if (stage == SysVpnStageCode::VPN_STAGE_OPENVPN_RESTART || stage == SysVpnStageCode::VPN_STAGE_OPENVPN_STOP) {
+        OhosOpenvpn::BrokerCommand command;
+        if (!OhosOpenvpn::DecodeBroker(message, command) ||
+            command.start != (stage == SysVpnStageCode::VPN_STAGE_OPENVPN_RESTART)) return NETMANAGER_ERROR;
+        // Serialize native registration with the broker response; the service
+        // continues to serialize the owning ctl/config through netVpnMutex_.
+        static std::mutex brokerMutex;
+        std::lock_guard<std::mutex> lock(brokerMutex);
+        if (command.start && MultiVpnManager::GetInstance().HasQemuSession(command.session.token)) return NETMANAGER_ERROR;
+        const bool recovering = !command.start && MultiVpnManager::GetInstance().QemuRecoveryReady(command);
+        pid_t broker = -1;
+        OhosOpenvpn::BrokerFd connection(OhosOpenvpn::ConnectBroker(broker));
+        if (connection.value < 0 && (command.start || recovering)) {
+            if (!MultiVpnManager::GetInstance().QemuCanStartBroker()) return NETMANAGER_ERROR;
+            if (access("/system/bin/qemu_openvpn_service", X_OK) != 0 || ServiceControl("qemu_openvpn", START) != 0) return NETMANAGER_ERROR;
+            const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+            do {
+                connection.value = OhosOpenvpn::ConnectBroker(broker);
+                if (connection.value >= 0) break;
+                poll(nullptr, 0, 25);
+            } while (std::chrono::steady_clock::now() < deadline);
+        }
+        if (connection.value < 0) return NETMANAGER_ERROR;
+        const auto brokerStart = OhosOpenvpn::ProcessStart(broker);
+        if (brokerStart.empty()) return NETMANAGER_ERROR;
+        std::string reply;
+        const bool exchanged = OhosOpenvpn::SendFrame(connection.value, message) &&
+            OhosOpenvpn::ReadFrame(connection.value, reply, command.start ? 2000 : 7000);
+        pid_t worker = -1; std::string workerStart;
+        const bool acknowledged = command.start ? OhosOpenvpn::DecodeStartReply(reply, worker, workerStart) :
+            (reply == "0" || (recovering && reply == std::to_string(ENOENT)));
+        if (!exchanged || !acknowledged || OhosOpenvpn::ProcessStart(broker) != brokerStart) {
+            if (command.start && !exchanged) {
+                // A lost START response is an ambiguous accepted request.
+                // Cancel only this capability; never stop/restart the broker.
+                command.start = false; command.session.profile.clear(); command.session.password.clear();
+                pid_t cleanupBroker = -1;
+                OhosOpenvpn::BrokerFd cleanup(OhosOpenvpn::ConnectBroker(cleanupBroker));
+                if (cleanup.value >= 0 && cleanupBroker == broker) {
+                    OhosOpenvpn::SendFrame(cleanup.value, OhosOpenvpn::EncodeBroker(command));
+                    OhosOpenvpn::ReadFrame(cleanup.value, reply, 7000);
+                }
+            }
+            return NETMANAGER_ERROR;
+        }
+        if (command.start && MultiVpnManager::GetInstance().BindQemuSession(command, broker, brokerStart, worker, workerStart) != NETMANAGER_SUCCESS) {
+            command.start = false; command.session.profile.clear(); command.session.password.clear();
+            pid_t cleanupBroker = -1;
+            OhosOpenvpn::BrokerFd cleanup(OhosOpenvpn::ConnectBroker(cleanupBroker));
+            if (cleanup.value >= 0 && cleanupBroker == broker) {
+                OhosOpenvpn::SendFrame(cleanup.value, OhosOpenvpn::EncodeBroker(command));
+                OhosOpenvpn::ReadFrame(cleanup.value, reply, 7000);
+            }
+            return NETMANAGER_ERROR;
+        }
+        if (!command.start && !MultiVpnManager::GetInstance().UnbindQemuSession(command.session.token)) return NETMANAGER_ERROR;
+        // START acknowledges an owned worker only; TLS/TUN prove CONNECTED.
+        // STOP acknowledges actual exit of this worker's entire process group.
+        return NetManagerStandard::NETMANAGER_SUCCESS;
+    }
+#endif
+
     if (PrepareUpdate(stage, message)) {
         return NetManagerStandard::NETMANAGER_SUCCESS;
     }

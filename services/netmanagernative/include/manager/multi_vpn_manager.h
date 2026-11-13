@@ -17,9 +17,15 @@
 #define MULTI_VPN_MANAGER_H
 
 #include <cstdint>
-#include <linux/if.h>
+#include <net/if.h>
 #include <string>
 #include <mutex>
+#include <atomic>
+#include <memory>
+#include <unordered_map>
+#include <vector>
+
+namespace OhosOpenvpn { struct BrokerCommand; }
 
 namespace OHOS {
 namespace NetManagerStandard {
@@ -55,6 +61,12 @@ public:
     void SetXfrmPhyIfName(const std::string &phyName);
     void SetVpnRemoteAddress(const std::string &remoteIp);
     void ClearPppFd(const std::string &connectName);
+    int32_t BindQemuSession(const OhosOpenvpn::BrokerCommand &command, int32_t broker, const std::string &startTime, int32_t worker, const std::string &workerStart);
+    bool UnbindQemuSession(const std::string &generation);
+    bool HasQemuSession(const std::string &generation);
+    bool QemuRecoveryReady(const OhosOpenvpn::BrokerCommand &command);
+    bool QemuCanStartBroker();
+
 
 private:
     int32_t SendVpnInterfaceFdToClient(int32_t clientFd, int32_t tunFd);
@@ -73,6 +85,21 @@ private:
     void StartMultiVpnInterfaceFdListen();
 
 private:
+    struct QemuMetric { std::string destination; std::string gateway; uint32_t metric; };
+    struct QemuBinding {
+        std::string interfaceName;
+        int32_t broker;
+        std::string brokerStartTime;
+        int32_t worker;
+        std::string workerStartTime;
+        std::string stopIdentity;
+        std::vector<QemuMetric> metrics {};
+        unsigned metricIfindex = 0;
+    };
+    std::unordered_map<std::string, QemuBinding> qemuBindings_;
+    bool qemuListening_ = false;
+    void StartQemuSocketListen(int32_t server);
+    bool ClearQemuMetrics(QemuBinding &binding);
     std::atomic_bool multiVpnListeningFlag_ = false;
     std::unordered_map<std::string, std::atomic_int> multiVpnFdMap_;
     std::string phyName_;

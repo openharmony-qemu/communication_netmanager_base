@@ -57,12 +57,20 @@ void AddNetworkRouteContext::ParseParams(napi_value *params, size_t paramsCount)
     napi_value destAddress = NapiUtils::GetNamedProperty(GetEnv(), destination, "address");
     route_.destination_.address_ = NapiUtils::GetStringPropertyUtf8(GetEnv(), destAddress, "address");
     route_.destination_.family_ = NapiUtils::GetInt32Property(GetEnv(), destAddress, "family");
-    route_.destination_.port_ = NapiUtils::GetInt32Property(GetEnv(), destAddress, "port");
+    if (!NapiUtils::GetOptionalUint16Property(GetEnv(), destAddress, "port", route_.destination_.port_)) {
+        SetNeedThrowException(true);
+        SetErrorCode(NETMANAGER_ERR_PARAMETER_ERROR);
+        return;
+    }
     route_.destination_.prefixlen_ = NapiUtils::GetInt32Property(GetEnv(), destination, "prefixLength");
     napi_value gateway = NapiUtils::GetNamedProperty(GetEnv(), params[1], "gateway");
     route_.gateway_.address_ = NapiUtils::GetStringPropertyUtf8(GetEnv(), gateway, "address");
     route_.gateway_.family_ = NapiUtils::GetInt32Property(GetEnv(), gateway, "family");
-    route_.gateway_.port_ = NapiUtils::GetInt32Property(GetEnv(), gateway, "port");
+    if (!NapiUtils::GetOptionalUint16Property(GetEnv(), gateway, "port", route_.gateway_.port_)) {
+        SetNeedThrowException(true);
+        SetErrorCode(NETMANAGER_ERR_PARAMETER_ERROR);
+        return;
+    }
     route_.hasGateway_ = NapiUtils::GetBooleanProperty(GetEnv(), params[1], "hasGateway");
     route_.isDefaultRoute_ = NapiUtils::GetBooleanProperty(GetEnv(), params[1], "isDefaultRoute");
     

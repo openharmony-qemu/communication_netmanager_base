@@ -41,6 +41,7 @@ public:
     NetDataShareHelperUtils();
     ~NetDataShareHelperUtils() = default;
     int32_t Query(Uri &uri, const std::string &key, std::string &value);
+    int32_t QueryOptional(Uri &uri, const std::string &key, std::string &value, bool &found);
     int32_t Insert(Uri &uri, const std::string &key, const std::string &value);
     int32_t Update(Uri &uri, const std::string &key, const std::string &value);
     int32_t Delete(Uri &uri, const std::string &key);

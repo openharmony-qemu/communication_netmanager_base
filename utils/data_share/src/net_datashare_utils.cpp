@@ -100,6 +100,44 @@ int32_t NetDataShareHelperUtils::Query(Uri &uri, const std::string &key, std::st
     return NETMANAGER_SUCCESS;
 }
 
+int32_t NetDataShareHelperUtils::QueryOptional(Uri &uri, const std::string &key,
+    std::string &value, bool &found)
+{
+    value.clear();
+    found = false;
+    auto helper = CreateDataShareHelper();
+    if (helper == nullptr) {
+        return NETMANAGER_ERROR;
+    }
+    DataShare::DataSharePredicates predicates;
+    predicates.EqualTo(SETTINGS_DATA_COLUMN_KEYWORD, key);
+    std::vector<std::string> columns;
+    DataShare::DatashareBusinessError error;
+    auto result = helper->Query(uri, predicates, columns, &error);
+    int32_t status = NETMANAGER_ERROR;
+    if (result != nullptr && error.GetCode() == 0) {
+        int rows = -1;
+        const int countStatus = result->GetRowCount(rows);
+        if (countStatus == DataShare::E_OK && rows == 0) {
+            status = NETMANAGER_SUCCESS;
+        } else if (countStatus == DataShare::E_OK && rows == 1 && result->GoToFirstRow() == DataShare::E_OK) {
+            int index = -1;
+            std::string readValue;
+            if (result->GetColumnIndex(SETTINGS_DATA_COLUMN_VALUE, index) == DataShare::E_OK &&
+                result->GetString(index, readValue) == DataShare::E_OK) {
+                value = std::move(readValue);
+                found = true;
+                status = NETMANAGER_SUCCESS;
+            }
+        }
+    }
+    if (result != nullptr) {
+        result->Close();
+    }
+    helper->Release();
+    return status;
+}
+
 int32_t NetDataShareHelperUtils::Insert(Uri &uri, const std::string &key, const std::string &value)
 {
     std::shared_ptr<DataShare::DataShareHelper> dataShareHelper = CreateDataShareHelper();

@@ -15,7 +15,7 @@
 #ifndef NET_FIREWALL_DOMAIN_H
 #define NET_FIREWALL_DOMAIN_H
 
-#include <bpf/bpf_helpers.h>
+#include <bpf_helpers.h>
 #include <linux/bpf.h>
 #include <linux/udp.h>
 
@@ -169,7 +169,13 @@ static __always_inline __u8 parse_dns_query(struct __sk_buff *skb, __u16 dns_qry
     if (quNum == 1) {
         __u16 res;
         __u16 key_len = 0;
-        struct domain_hash_key key = { 0 };
+        __u32 scratch_id = 0;
+        struct netfirewall_percpu_scratch *scratch = bpf_map_lookup_elem(&NETFIREWALL_SCRATCH_MAP, &scratch_id);
+        if (!scratch) {
+            return 0;
+        }
+        #define key (scratch->domain_key)
+        memset(&key, 0, sizeof(key));
 
         res = parse_queries(skb, dns_qry_off, (__u8*)&key.data, &key_len);
         if (res == 0) {
@@ -224,7 +230,13 @@ static __always_inline __u16 parse_dns_response(struct __sk_buff *skb, __u16 dns
 
     if (qu_num == 1) {
         __u16 key_len = 0;
-        struct domain_hash_key key = { 0 };
+        __u32 scratch_id = 0;
+        struct netfirewall_percpu_scratch *scratch = bpf_map_lookup_elem(&NETFIREWALL_SCRATCH_MAP, &scratch_id);
+        if (!scratch) {
+            return 0;
+        }
+        #define key (scratch->domain_key)
+        memset(&key, 0, sizeof(key));
 
         offset = parse_queries(skb, dns_qry_off, (__u8*)&key.data, &key_len);
         if (offset == 0) {
@@ -279,6 +291,7 @@ static __always_inline __u16 parse_dns_response(struct __sk_buff *skb, __u16 dns
         return 0;
     }
 
+    #pragma clang loop unroll(disable)
     for (__u16 i = 0; i < DNS_ANSWER_CNT; i++) {
         if (i >= asNum) {
             break;
@@ -289,6 +302,7 @@ static __always_inline __u16 parse_dns_response(struct __sk_buff *skb, __u16 dns
     return 0;
 }
 
+#undef key
 static __always_inline __u16 MatchDefaultActionMap(struct __sk_buff *skb)
 {
     __u32 currentUid = get_current_uid(skb);

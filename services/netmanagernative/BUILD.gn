@@ -53,6 +53,19 @@ config("netsys_native_manager_config") {
     defines += [ "SUPPORT_SYSVPN" ]
   }
 
+  # Only the three QEMU products use the separately packaged native backend.
+  if (netmanager_base_enable_feature_sysvpn &&
+      (product_name == "armv7a_virt" || product_name == "arm64_virt" ||
+       product_name == "x86_64_virt")) {
+    defines += [ "OHOS_QEMU_OPENVPN" ]
+  }
+
+  # The fixed virtual modem endpoint is present only on QEMU products.
+  if (product_name == "armv7a_virt" || product_name == "arm64_virt" ||
+      product_name == "x86_64_virt") {
+    defines += [ "OHOS_QEMU_MODEM_TUN" ]
+  }
+
   if (netmanager_base_feature_enterprise_route_custom) {
     defines += [ "FEATURE_ENTERPRISE_ROUTE_CUSTOM" ]
   }
@@ -108,6 +121,11 @@ netsys_native_manager_sources = [
   "src/netsys_native_service_stub.cpp",
   "src/netsys_traffic_callback_proxy.cpp",
 ]
+
+if (product_name == "armv7a_virt" || product_name == "arm64_virt" ||
+    product_name == "x86_64_virt") {
+  netsys_native_manager_sources += [ "src/qemu_modem_tun.cpp" ]
+}
 
 netsys_native_manager_deps = [
   "$FWMARK_CLIENT_DIR:fwmark_client",

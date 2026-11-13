@@ -313,4 +313,19 @@ bpf_map_def SEC("maps") LOOP_BACK_IPV6_MAP = {
     .inner_map_idx = 0,
     .numa_node = 0,
 };
+
+struct netfirewall_percpu_scratch {
+    struct domain_hash_key domain_key;
+    struct bitmap bitmap_key;
+};
+
+bpf_map_def SEC("maps") NETFIREWALL_SCRATCH_MAP = {
+    .type = BPF_MAP_TYPE_PERCPU_ARRAY,
+    .key_size = sizeof(__u32),
+    .value_size = sizeof(struct netfirewall_percpu_scratch),
+    .max_entries = 1,
+    .map_flags = 0,
+    .inner_map_idx = 0,
+    .numa_node = 0,
+};
 #endif // NET_FIREWALL_MAP_H

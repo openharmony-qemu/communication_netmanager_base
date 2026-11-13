@@ -138,12 +138,16 @@ static __always_inline enum sk_action netfirewall_policy_ingress(struct __sk_buf
         return SK_PASS;
     }
 
-    struct bitmap key = { 0 };
-    if (!match_action_key(skb, &tuple, &key)) {
+    __u32 scratch_id = 0;
+    struct netfirewall_percpu_scratch *scratch = bpf_map_lookup_elem(&NETFIREWALL_SCRATCH_MAP, &scratch_id);
+    if (!scratch) {
+        return SK_PASS;
+    }
+    if (!match_action_key(skb, &tuple, &scratch->bitmap_key)) {
         return SK_PASS;
     }
 
-    if (match_action(&tuple, &key) != SK_PASS) {
+    if (match_action(&tuple, &scratch->bitmap_key) != SK_PASS) {
         log_intercept(&tuple);
         send_sock_tcp_reset(&tuple, skb, INGRESS);
         return SK_DROP;
@@ -209,12 +213,16 @@ static __always_inline enum sk_action netfirewall_policy_egress(struct __sk_buff
         return SK_PASS;
     }
 
-    struct bitmap key = { 0 };
-    if (!match_action_key(skb, &tuple, &key)) {
+    __u32 scratch_id = 0;
+    struct netfirewall_percpu_scratch *scratch = bpf_map_lookup_elem(&NETFIREWALL_SCRATCH_MAP, &scratch_id);
+    if (!scratch) {
+        return SK_PASS;
+    }
+    if (!match_action_key(skb, &tuple, &scratch->bitmap_key)) {
         return SK_PASS;
     }
     // Outbound DNS queries need to be released
-    if (!MatchDnsQuery(&tuple) && match_action(&tuple, &key) != SK_PASS) {
+    if (!MatchDnsQuery(&tuple) && match_action(&tuple, &scratch->bitmap_key) != SK_PASS) {
         log_intercept(&tuple);
         send_sock_tcp_reset(&tuple, skb, EGRESS);
         return SK_DROP;

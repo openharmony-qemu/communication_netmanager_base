@@ -15,7 +15,7 @@
 #ifndef NET_FIREWALL_MATCH_H
 #define NET_FIREWALL_MATCH_H
 
-#include <bpf/bpf_helpers.h>
+#include <bpf_helpers.h>
 
 #include "netfirewall_utils.h"
 #include "netfirewall_bitmap.h"

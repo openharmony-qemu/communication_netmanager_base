@@ -43,6 +43,9 @@ uint32_t GetUint32FromValue(napi_env env, napi_value value);
 uint32_t GetUint32Property(napi_env env, napi_value object, const std::string &propertyName);
 void SetUint32Property(napi_env env, napi_value object, const std::string &name, uint32_t value);
 
+/* Optional UINT16: missing/undefined defaults to zero; invalid input is not narrowed. */
+bool GetOptionalUint16Property(napi_env env, napi_value object, const std::string &propertyName, uint16_t &value);
+
 /* INT32 */
 napi_value CreateInt32(napi_env env, int32_t code);
 int32_t GetInt32FromValue(napi_env env, napi_value value);

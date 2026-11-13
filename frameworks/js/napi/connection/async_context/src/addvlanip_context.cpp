@@ -41,7 +41,11 @@ void AddVlanIpContext::ParseParams(napi_value *params, size_t paramsCount)
     napi_value netAddress = NapiUtils::GetNamedProperty(GetEnv(), params[ARG_INDEX_2], "address");
     address_.address_ = NapiUtils::GetStringPropertyUtf8(GetEnv(), netAddress, "address");
     address_.family_ = NapiUtils::GetInt32Property(GetEnv(), netAddress, "family");
-    address_.port_ = NapiUtils::GetInt32Property(GetEnv(), netAddress, "port");
+    if (!NapiUtils::GetOptionalUint16Property(GetEnv(), netAddress, "port", address_.port_)) {
+        SetNeedThrowException(true);
+        SetErrorCode(NETMANAGER_ERR_PARAMETER_ERROR);
+        return;
+    }
     address_.prefixlen_ = NapiUtils::GetInt32Property(GetEnv(), params[ARG_INDEX_2], "prefixLength");
 
     SetParseOK(true);

@@ -23,8 +23,8 @@
 namespace OHOS {
 namespace NetManagerStandard {
  
-static constexpr const char* SETTINGS_PACKAGE_NAME = "com.huawei.hmos.communicationsetting";
-static constexpr const char* SETTINGS_ABILITY_NAME = "NetAccessPolicySettingUIExtension";
+static constexpr const char* SETTINGS_PACKAGE_NAME = "com.ohos.communicationsetting";
+static constexpr const char* SETTINGS_ABILITY_NAME = "UIExtensionProvider";
 static constexpr const char* UIEXTENSION_TYPE_KEY = "ability.want.params.uiExtensionType";
 static constexpr const char* UIEXTENSION_TYPE_VALUE = "sys/commonUI";
 static constexpr const char* CONTEXT_TYPE_KEY = "storeKit.ability.contextType";

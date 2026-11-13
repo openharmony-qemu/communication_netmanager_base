@@ -30,6 +30,10 @@
 #include "securec.h"
 #include "netlink_socket.h"
 #include "route_manager.h"
+#ifdef OHOS_QEMU_OPENVPN
+#include "../../../../../netmanager_ext/qemu_openvpn/broker_protocol.h"
+#include "../../../../../netmanager_ext/qemu_openvpn/route_metrics.h"
+#endif
 
 namespace OHOS {
 namespace NetManagerStandard {
@@ -387,6 +391,13 @@ int32_t MultiVpnManager::CreateMultiTunInterface(const std::string &ifName)
         NETNATIVE_LOGE("multi tun set iff error: %{public}d", errno);
         return NETMANAGER_ERROR;
     }
+#ifdef OHOS_QEMU_OPENVPN
+    {
+        std::lock_guard<std::mutex> lock(mutex_);
+        for (const auto &entry : qemuBindings_)
+            if (entry.second.interfaceName == ifName) return NETMANAGER_SUCCESS;
+    }
+#endif
     multiVpnListeningName_ = ifName;
     StartMultiVpnInterfaceFdListen();
     return NETMANAGER_SUCCESS;
@@ -484,6 +495,151 @@ void MultiVpnManager::StartMultiVpnSocketListen()
     close(clientFd);
 }
 
+#ifdef OHOS_QEMU_OPENVPN
+int32_t MultiVpnManager::BindQemuSession(const OhosOpenvpn::BrokerCommand &command, int32_t broker,
+    const std::string &startTime, int32_t worker, const std::string &workerStart)
+{
+    if (!command.start || !OhosOpenvpn::BrokerIdentity(command) || broker <= 1 || startTime.empty() ||
+        OhosOpenvpn::ProcessStart(broker) != startTime || worker <= 1 || workerStart.empty() ||
+        OhosOpenvpn::ProcessStart(worker) != workerStart || OhosOpenvpn::Parent(worker) != broker ||
+        !OhosOpenvpn::Executable(worker, "/system/bin/qemu_openvpn_service")) return NETMANAGER_ERROR;
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (qemuBindings_.size() >= OhosOpenvpn::MAX_BROKER_SESSIONS || qemuBindings_.count(command.session.token)) return NETMANAGER_ERROR;
+    for (const auto &entry : qemuBindings_)
+        if (entry.second.interfaceName == command.interfaceName) return NETMANAGER_ERROR;
+    if (!qemuListening_) {
+        const int server = GetControlSocket("qemu_openvpn_tunfd");
+        if (!OhosOpenvpn::InitBrokerListener(server, "/dev/unix/socket/qemu_openvpn_tunfd") ||
+            listen(server, MAX_UNIX_SOCKET_CLIENT) != 0) return NETMANAGER_ERROR;
+        std::thread worker([sp = shared_from_this(), server]() { sp->StartQemuSocketListen(server); });
+        worker.detach();
+        qemuListening_ = true;
+    }
+    qemuBindings_.emplace(command.session.token, QemuBinding {command.interfaceName, broker, startTime, worker, workerStart, OhosOpenvpn::StopIdentity(command)});
+    return NETMANAGER_SUCCESS;
+}
+
+bool MultiVpnManager::QemuRecoveryReady(const OhosOpenvpn::BrokerCommand &command)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    const auto found = qemuBindings_.find(command.session.token);
+    if (found == qemuBindings_.end() || found->second.stopIdentity != OhosOpenvpn::StopIdentity(command)) return false;
+    const auto &binding = found->second;
+    if (OhosOpenvpn::ProcessStart(binding.broker) == binding.brokerStartTime ||
+        OhosOpenvpn::ProcessStart(binding.worker) == binding.workerStartTime) return false;
+    // A killed broker cannot acknowledge its old jobs. Before starting a new
+    // cleanup broker, prove the actual owned group is empty, not just PID gone.
+    return kill(-binding.worker, 0) < 0 && errno == ESRCH;
+}
+
+bool MultiVpnManager::QemuCanStartBroker()
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    for (const auto &item : qemuBindings_) {
+        const auto &binding = item.second;
+        if (OhosOpenvpn::ProcessStart(binding.broker) == binding.brokerStartTime) continue;
+        if (OhosOpenvpn::ProcessStart(binding.worker) == binding.workerStartTime ||
+            kill(-binding.worker, 0) == 0 || errno != ESRCH) return false;
+    }
+    return true;
+}
+
+bool MultiVpnManager::HasQemuSession(const std::string &generation)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    return qemuBindings_.find(generation) != qemuBindings_.end();
+}
+
+bool MultiVpnManager::ClearQemuMetrics(QemuBinding &binding)
+{
+    // Restore only routes this capability actually changed. Keep each entry
+    // until its kernel ACK succeeds, so a partial rollback cannot be forgotten.
+    if (!binding.metrics.empty()) {
+        const auto tun=multiVpnFdMap_.find(binding.interfaceName);ifreq observed {};
+        if (!binding.metricIfindex || if_nametoindex(binding.interfaceName.c_str())!=binding.metricIfindex ||
+            tun==multiVpnFdMap_.end() || tun->second.load()<0 || ioctl(tun->second.load(),TUNGETIFF,&observed)!=0 ||
+            strnlen(observed.ifr_name,IFNAMSIZ)==IFNAMSIZ || binding.interfaceName!=observed.ifr_name ||
+            !(observed.ifr_flags&IFF_TUN) || !(observed.ifr_flags&IFF_NO_PI)) return false;
+    }
+    while (!binding.metrics.empty()) {
+        const auto &row = binding.metrics.back();
+        if (nmd::RouteManager::ReplaceQemuRouteMetric(binding.interfaceName, row.destination,
+            row.gateway, row.metric, 0) != 0) return false;
+        binding.metrics.pop_back();
+    }
+    binding.metricIfindex=0;
+    return true;
+}
+
+bool MultiVpnManager::UnbindQemuSession(const std::string &generation)
+{
+    std::lock_guard<std::mutex> lock(mutex_);
+    auto found = qemuBindings_.find(generation);
+    if (found == qemuBindings_.end()) return true;
+    if (!ClearQemuMetrics(found->second)) return false;
+    qemuBindings_.erase(found); return true;
+}
+
+void MultiVpnManager::StartQemuSocketListen(int32_t server)
+{
+    for (;;) {
+        OhosOpenvpn::BrokerFd connection(accept4(server, nullptr, nullptr, SOCK_CLOEXEC | SOCK_NONBLOCK));
+        if (connection.value < 0) { if (errno == EINTR) continue; poll(nullptr, 0, 100); continue; }
+        pid_t bridge = -1;
+        std::string bridgeStart;
+        if (!OhosOpenvpn::BrokerPeer(connection.value, OhosOpenvpn::BROKER_UID,
+            "/system/bin/qemu_openvpn_tun", bridge, &bridgeStart)) continue;
+        std::string request;
+        constexpr std::string_view prefix = "qemu-openvpn-tun-v3\n";
+        if (!OhosOpenvpn::ReadFrame(connection.value, request) || request.size() < prefix.size()+34 ||
+            request.compare(0,prefix.size(),prefix) || request[prefix.size()+32]!='\n' ||
+            !OhosOpenvpn::Token(std::string_view(request).substr(prefix.size(),32))) continue;
+        const auto actionEnd=request.find('\n',prefix.size()+33);
+        if(actionEnd==std::string::npos) continue;
+        const auto action=request.substr(prefix.size()+33,actionEnd-prefix.size()-33);
+        std::vector<OhosOpenvpn::RouteMetric> metrics;
+        if ((action!="clear" && action!="tun") || !OhosOpenvpn::ReadMetrics(request.substr(actionEnd+1),metrics) ||
+            (action=="clear" && !metrics.empty())) continue;
+        std::lock_guard<std::mutex> lock(mutex_);
+        const auto binding = qemuBindings_.find(request.substr(prefix.size(),32));
+        if (binding == qemuBindings_.end()) continue;
+        auto &owner = binding->second;
+        const pid_t client = OhosOpenvpn::Parent(bridge);
+        const pid_t worker = OhosOpenvpn::Parent(client);
+        const auto clientStart = OhosOpenvpn::ProcessStart(client);
+        const auto workerStart = OhosOpenvpn::ProcessStart(worker);
+        if (clientStart.empty() || workerStart.empty() || worker != owner.worker || workerStart != owner.workerStartTime ||
+            !OhosOpenvpn::Executable(client, "/system/bin/qemu_openvpn") ||
+            !OhosOpenvpn::Executable(worker, "/system/bin/qemu_openvpn_service") ||
+            !OhosOpenvpn::Executable(owner.broker, "/system/bin/qemu_openvpn_service") ||
+            OhosOpenvpn::Parent(worker) != owner.broker || OhosOpenvpn::ProcessStart(owner.broker) != owner.brokerStartTime ||
+            OhosOpenvpn::ProcessStart(worker) != workerStart || OhosOpenvpn::ProcessStart(client) != clientStart ||
+            OhosOpenvpn::ProcessStart(bridge) != bridgeStart) continue;
+        if (action=="clear") {
+            OhosOpenvpn::SendFrame(connection.value,ClearQemuMetrics(owner)?"0":"1"); continue;
+        }
+        if (!owner.metrics.empty()) continue; // Caller clears before a fresh negotiated snapshot.
+        const auto tun = multiVpnFdMap_.find(owner.interfaceName);
+        if (tun == multiVpnFdMap_.end() || tun->second.load() < 0) continue;
+        ifreq requestIf {};
+        if (ioctl(tun->second.load(), TUNGETIFF, &requestIf) != 0 ||
+            strnlen(requestIf.ifr_name, IFNAMSIZ) == IFNAMSIZ || owner.interfaceName != requestIf.ifr_name ||
+            !(requestIf.ifr_flags & IFF_TUN) || !(requestIf.ifr_flags & IFF_NO_PI)) continue;
+        owner.metricIfindex=if_nametoindex(owner.interfaceName.c_str());
+        if(!owner.metricIfindex) continue;
+        bool applied=true;
+        for(const auto &metric:metrics) {
+            if(nmd::RouteManager::ReplaceQemuRouteMetric(owner.interfaceName,metric.destination,metric.gateway,0,metric.metric)!=0) {
+                applied=false;break;
+            }
+            owner.metrics.push_back({metric.destination,metric.gateway,metric.metric});
+        }
+        if(!applied) { ClearQemuMetrics(owner);continue; }
+        SendVpnInterfaceFdToClient(connection.value, tun->second.load());
+    }
+}
+#endif
+
 void MultiVpnManager::SetXfrmPhyIfName(const std::string &phyName)
 {
     phyName_ = phyName;
@@ -557,6 +713,7 @@ int32_t MultiVpnManager::SetVpnAddressIPv6(const std::string &ifName, const std:
 
 int32_t MultiVpnManager::SetVpnAddressIPv4(const std::string &ifName, const std::string &vpnAddr, int32_t prefix)
 {
+    if (prefix < 0 || prefix > NET_MASK_MAX_LENGTH) return NETMANAGER_ERROR;
     ifreq ifr = {};
     if (InitIfreq(ifr, ifName) != NETMANAGER_SUCCESS) {
         return NETMANAGER_ERROR;
@@ -589,11 +746,7 @@ int32_t MultiVpnManager::SetVpnAddressIPv4(const std::string &ifName, const std:
         return NETMANAGER_ERROR;
     }
 
-    if (prefix <= 0 || prefix > NET_MASK_MAX_LENGTH) {
-        close(sock);
-        return NETMANAGER_ERROR;
-    }
-    in_addr_t mask = prefix ? (~0 << (NET_MASK_MAX_LENGTH - prefix)) : 0;
+    in_addr_t mask = prefix ? (0xffffffffu << (NET_MASK_MAX_LENGTH - prefix)) : 0;
     sin = reinterpret_cast<sockaddr_in *>(&ifr.ifr_netmask);
     sin->sin_family = AF_INET;
     sin->sin_addr.s_addr = htonl(mask);
